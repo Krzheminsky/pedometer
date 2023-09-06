@@ -1,13 +1,16 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
-
+import 'package:wakelock/wakelock.dart';
 import 'package:pedometer/pedometer.dart';
+import 'package:geolocator/geolocator.dart';
 
 String formatDate(DateTime d) {
   return d.toString().substring(0, 19);
 }
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  Wakelock.enable();
   runApp(const MyApp());
 }
 
@@ -20,11 +23,17 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
+  final LocationSettings locationSettings = const LocationSettings(
+    distanceFilter: 2,
+    accuracy: LocationAccuracy.high,
+  );
+  late StreamSubscription<Position> _positionStream;
   late Stream<StepCount> _stepCountStream;
   late Stream<PedestrianStatus> _pedestrianStatusStream;
   String _status = '', _steps = '?';
   final Stopwatch _stopwatch = Stopwatch();
   late Timer _timer;
+  late Timer timer;
   String _elapsedTime = "00:00:00";
   int getSeconds = 1;
 
@@ -35,12 +44,25 @@ class _MyAppState extends State<MyApp> {
   double distance = 0;
   double averageSpeed = 0;
   double calorieConsumption = 0;
+  double _speed = 0.0;
 
   @override
   void initState() {
     super.initState();
+    timer = Timer.periodic(const Duration(seconds: 15), (Timer t) {
+      setState(() {});
+    });
     initPlatformState();
     _startStopwatch();
+    _positionStream =
+        Geolocator.getPositionStream(locationSettings: locationSettings)
+            .listen((position) {
+      // ignore: unnecessary_null_comparison
+      _onSpeedChange(position == null
+          ? 0.0
+          : (position.speed * 18) /
+              5); //Converting position speed from m/s to km/hr
+    });
   }
 
   void onStepCount(StepCount event) {
@@ -111,7 +133,22 @@ class _MyAppState extends State<MyApp> {
       });
     });
   }
+
   // ****************************************************
+
+  void _onSpeedChange(double newSpeed) {
+    setState(() {
+      _speed = newSpeed;
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    timer?.cancel();
+    _positionStream.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -129,108 +166,153 @@ class _MyAppState extends State<MyApp> {
           centerTitle: true,
         ),
         backgroundColor: Colors.green[300],
-        body: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: <Widget>[
-              const Text(
-                'Кількість кроків',
-                style: TextStyle(
-                    fontSize: 18, color: Color.fromARGB(255, 94, 71, 64)),
-              ),
-              // Text(
-              //   _steps,
-              //   style: const TextStyle(fontSize: 60),
-              // ),
-              Text(
-                newSteps.toString(),
-                style: const TextStyle(
-                    fontSize: 60,
-                    color: Colors.redAccent,
-                    fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(
-                height: 15,
-              ),
-              const Text(
-                'Відстань, км',
-                style: TextStyle(
-                    fontSize: 18, color: Color.fromARGB(255, 94, 71, 64)),
-              ),
-              Text(
-                distance.toStringAsFixed(3),
-                style: const TextStyle(
-                    fontSize: 50,
-                    color: Colors.yellow,
-                    fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(
-                height: 15,
-              ),
-              const Text(
-                'Cередня швидкість, км/год',
-                style: TextStyle(
-                    fontSize: 18, color: Color.fromARGB(255, 94, 71, 64)),
-              ),
-              Text(
-                averageSpeed.toStringAsFixed(1),
-                style: const TextStyle(
-                    fontSize: 50,
-                    color: Colors.yellow,
-                    fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(
-                height: 15,
-              ),
-
-              const Text(
-                'Витрачено енергії, Ккал',
-                style: TextStyle(
-                    fontSize: 18, color: Color.fromARGB(255, 94, 71, 64)),
-              ),
-              Text(
-                calorieConsumption.toStringAsFixed(3),
-                style: const TextStyle(
-                    fontSize: 40,
-                    color: Colors.redAccent,
-                    fontWeight: FontWeight.bold),
-              ),
-
-              const SizedBox(
-                height: 20,
-              ),
-
-              // const Text(
-              //   'Статус',
-              //   style: TextStyle(fontSize: 16),
-              // ),
-              Icon(
-                _status == 'walking'
-                    ? Icons.directions_walk
-                    : _status == 'stopped'
-                        ? Icons.accessibility_new
-                        : Icons.error,
-                size: 70,
-                color: const Color.fromARGB(255, 94, 71, 64),
-              ),
-              Center(
-                child: Text(
-                  _status,
-                  style: _status == 'walking' || _status == 'stopped'
-                      ? const TextStyle(fontSize: 30)
-                      : const TextStyle(fontSize: 20, color: Colors.red),
+        body: SingleChildScrollView(
+          child: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: <Widget>[
+                const SizedBox(
+                  height: 15,
                 ),
-              ),
-              const SizedBox(
-                height: 15,
-              ),
-              Text("Витрачений час: $_elapsedTime",
-                  style:
-                      const TextStyle(color: Color.fromARGB(255, 94, 71, 64))),
-              Text('Корисний час ${(getSeconds / 60).toStringAsFixed(0)} хвил.',
-                  style:
-                      const TextStyle(color: Color.fromARGB(255, 94, 71, 64))),
-            ],
+                const Text(
+                  'Кількість кроків',
+                  style: TextStyle(
+                      fontSize: 18, color: Color.fromARGB(255, 94, 71, 64)),
+                ),
+                // Text(
+                //   _steps,
+                //   style: const TextStyle(fontSize: 60),
+                // ),
+                Text(
+                  newSteps.toString(),
+                  style: const TextStyle(
+                      fontSize: 60,
+                      color: Colors.redAccent,
+                      fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(
+                  height: 10,
+                ),
+                const Text(
+                  'Відстань, км',
+                  style: TextStyle(
+                      fontSize: 18, color: Color.fromARGB(255, 94, 71, 64)),
+                ),
+                Text(
+                  distance.toStringAsFixed(3),
+                  style: const TextStyle(
+                      fontSize: 50,
+                      color: Colors.yellow,
+                      fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(
+                  height: 10,
+                ),
+                const Text(
+                  'Cередня швидкість, км/год',
+                  style: TextStyle(
+                      fontSize: 18, color: Color.fromARGB(255, 94, 71, 64)),
+                ),
+                Text(
+                  averageSpeed.toStringAsFixed(1),
+                  style: const TextStyle(
+                      fontSize: 40,
+                      color: Colors.redAccent,
+                      fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(
+                  height: 10,
+                ),
+                const Text(
+                  'Активна швидкість, км/год',
+                  style: TextStyle(
+                      fontSize: 18, color: Color.fromARGB(255, 94, 71, 64)),
+                ),
+                Text(
+                  _speed.toStringAsFixed(1),
+                  style: const TextStyle(
+                      fontSize: 40,
+                      color: Colors.yellow,
+                      fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(
+                  height: 10,
+                ),
+
+                const Text(
+                  'Витрачено енергії, Ккал',
+                  style: TextStyle(
+                      fontSize: 18, color: Color.fromARGB(255, 94, 71, 64)),
+                ),
+                Text(
+                  calorieConsumption.toStringAsFixed(3),
+                  style: const TextStyle(
+                      fontSize: 40,
+                      color: Colors.redAccent,
+                      fontWeight: FontWeight.bold),
+                ),
+
+                const SizedBox(
+                  height: 20,
+                ),
+
+                // const Text(
+                //   'Статус',
+                //   style: TextStyle(fontSize: 16),
+                // ),
+                Icon(
+                  _status == 'walking'
+                      ? Icons.directions_walk
+                      : _status == 'stopped'
+                          ? Icons.accessibility_new
+                          : Icons.error,
+                  size: 60,
+                  color: const Color.fromARGB(255, 94, 71, 64),
+                ),
+                Center(
+                  child: Text(
+                    _status,
+                    style: _status == 'walking' || _status == 'stopped'
+                        ? const TextStyle(
+                            fontSize: 30,
+                            color: Color.fromARGB(255, 94, 71, 64))
+                        : const TextStyle(fontSize: 20, color: Colors.red),
+                  ),
+                ),
+                const SizedBox(
+                  height: 10,
+                ),
+
+                RichText(
+                    text: TextSpan(
+                        text: "Витрачений час: ",
+                        style: const TextStyle(
+                            color: Color.fromARGB(255, 94, 71, 64),
+                            fontSize: 18),
+                        children: <TextSpan>[
+                      TextSpan(
+                        text: _elapsedTime,
+                        style: const TextStyle(
+                            fontWeight: FontWeight.bold, fontSize: 26),
+                      ),
+                    ])),
+                RichText(
+                    text: TextSpan(
+                        text: "Корисний час ",
+                        style:
+                            const TextStyle(color: Colors.yellow, fontSize: 18),
+                        children: <TextSpan>[
+                      TextSpan(
+                        text: (getSeconds / 60).toStringAsFixed(0),
+                        style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.red,
+                            fontSize: 26),
+                      ),
+                      const TextSpan(text: ' хвил.')
+                    ])),
+              ],
+            ),
           ),
         ),
       ),
